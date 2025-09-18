@@ -38,12 +38,7 @@ class HabitApp extends StatelessWidget {
             brightness: Brightness.dark,
             useMaterial3: true,
           ),
-          // force HomeScreen to rebuild when theme changes
-          home: HomeScreen(
-            key: ValueKey(theme.mode),
-            repository: repository,
-            theme: theme,
-          ),
+          home: HomeScreen(repository: repository, theme: theme),
         );
       },
     );
@@ -625,21 +620,25 @@ class _HomeScreenState extends State<HomeScreen> {
 
                 return GestureDetector(
                   onLongPress: () => _editHabitDialog(h),
-                  child: Card(
-                    elevation: 2,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                    clipBehavior: Clip.antiAlias,
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 250),
-                      curve: Curves.easeOutCubic,
-                      padding: const EdgeInsets.all(12),
-                      color: Theme.of(context).colorScheme.surface, // animate between modes
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surface,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        )
+                      ],
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12.0),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
                             children: [
-                              // progress ring + emoji (animated)
                               SizedBox(
                                 width: 42,
                                 height: 42,
@@ -837,9 +836,6 @@ class _ColorDot extends StatelessWidget {
   final VoidCallback onTap;
   @override
   Widget build(BuildContext context) {
-    final borderColor = selected
-        ? Theme.of(context).colorScheme.onPrimaryContainer
-        : Theme.of(context).dividerColor; // adapt to theme
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -848,7 +844,10 @@ class _ColorDot extends StatelessWidget {
         decoration: BoxDecoration(
           color: color,
           shape: BoxShape.circle,
-          border: Border.all(color: borderColor, width: selected ? 2 : 1),
+          border: Border.all(
+            color: selected ? Theme.of(context).colorScheme.onPrimaryContainer : Colors.white,
+            width: selected ? 2 : 1,
+          ),
           boxShadow: [
             BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 6, offset: const Offset(0, 2)),
           ],
