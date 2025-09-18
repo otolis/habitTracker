@@ -1,122 +1,202 @@
+import 'dart:convert';
+import 'dart:io';
+
+
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 
-void main() {
-  runApp(const MyApp());
+
+void main() async{
+  WidgetsFlutterBinding.ensureInitialized();
+  final repo = await HabitRepository.create();
+  runApp(HabitApp(repository: repo));
 }
+//root widget for home screen
+class HabitApp extends StatelessWidget{
+  const HabitApp({super.key,required this.repository});
+  final HabitRepository repository;
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      debugShowCheckedModeBanner: false,
+      title: "Habit Tracker",
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        colorSchemeSeed:const Color(0xFF6C63FF),
+        brightness: Brightness.light,
+        useMaterial3: true,
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+    home: HomeScreen(repository:repository),
     );
   }
 }
+// habit entity
+class Habit {
+  Habit({
+    required this.id,
+    required this.name,
+    required this.emoji,
+    required this.colorValue,
+    DateTime? createdAt,
+    Set<String>? completedDays, 
+}) : createdAt = createdAt ?? DateTime.now(), 
+completedDays = completedDays ?? <String>{}; 
+  final String id;
+  String name;
+  String emoji;
+  int colorValue;
+  final DateTime createdAt;
+  final Set<String> completedDays;
+  Color get color => Color(colorValue);
+  
+//json map
+  Map<String, dynamic> toJson() => {
+'id': id,
+'name': name,
+'emoji': emoji,
+'colorValue': colorValue,
+'createdAt': createdAt.toIso8601String(),
+'completedDays': completedDays.toList(),
+};
+static Habit fromJson(Map<String, dynamic> json) => Habit(
+id: json['id'] as String,
+name: json['name'] as String,
+emoji: json['emoji'] as String,
+colorValue: json['colorValue'] as int,
+createdAt: DateTime.tryParse(json['createdAt'] as String? ?? ''),
+completedDays: {
+for (final d in (json['completedDays'] as List? ?? const [])) d as String
+},
+);
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
-
-  @override
-  State<MyHomePage> createState() => _MyHomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+// habit loading and saving
+class HabitRepository {
+  HabitRepository._(this._file);
+  final File _file;
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
+  static const _filename = "habits.json";
+  
+
+  static Future<HabitRepository> create() async {
+ final dir = await getApplicationDocumentsDirectory(); 
+ final file = File('${dir.path}/$_filename'); 
+ if (!await file.exists()) { 
+ await file.writeAsString(jsonEncode({'habits': []})); 
+ }
+ return HabitRepository._(file);
+ }
+ // read habits from localstorage
+ Future<List<Habit>> localHabits() async{
+  try {
+    final text=await _file.readAsString();
+    final map = jsonDecode(text) as Map<String,dynamic>;
+    final list = (map["habits"] as List?) ?? const [];
+    return list
+       .map((e) => Habit.fromJson(e as Map<String, dynamic>)) 
+       .toList(); 
+  } catch(_){
+    return [];
   }
+ }
+  Future<void> saveHabits(List<Habit> habits) async {
+    final map = {
+      'habits': habits.map((h) => h.toJson()).toList(), 
+    };
+  await _file.writeAsString(jsonEncode(map)); 
+ }
+}
+
+
+String dayKey(DateTime dt, {int startOfDayHour = 0}) {
+final local = dt.toLocal(); 
+final adjusted = local.hour < startOfDayHour
+? local.subtract(const Duration(days: 1)) 
+: local; 
+final y = adjusted.year.toString().padLeft(4, '0'); 
+final m = adjusted.month.toString().padLeft(2, '0'); 
+final d = adjusted.day.toString().padLeft(2, '0'); 
+return '$y-$m-$d'; 
+}
+
+
+
+int computeCurrentStreak(Habit habit, {int startOfDayHour = 0}) {
+int streak = 0; 
+var cursor = DateTime.now(); 
+while (true) {
+final key = dayKey(cursor, startOfDayHour: startOfDayHour); 
+if (habit.completedDays.contains(key)) { 
+streak += 1; 
+cursor = cursor.subtract(const Duration(days: 1)); 
+} else {
+break; 
+}
+}
+return streak; 
+}
+
+
+// best streak
+int computeBestStreak(Habit habit) {
+if (habit.completedDays.isEmpty) return 0; 
+final dates = habit.completedDays
+.map((k) => DateTime.parse('$kT12:00:00')) 
+.toList()
+..sort(); 
+int best = 1; 
+int current = 1; 
+for (int i = 1; i < dates.length; i++) {
+final prev = dates[i - 1]; 
+final cur = dates[i];
+if (cur.difference(prev).inDays == 1) { 
+current += 1; 
+if (current > best) best = current; 
+} else if (cur.difference(prev).inDays > 1) {
+current = 1; 
+}
+}
+return best; 
+}
+
+
+
+List<String> lastNDaysKeys(int n, {int startOfDayHour = 0}) {
+final now = DateTime.now(); 
+return List.generate(
+n,
+(i) => dayKey(now.subtract(Duration(days: i)), startOfDayHour: startOfDayHour), 
+).reversed.toList(); 
+}
+
+//home screen
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key,required this.repository});
+  final HabitRepository repository;
+  
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+  
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final int startOfDayHour = 12;
+  List<Habit> habits = [];
+  bool loading = true;
 
   @override
-  Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
-    return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ],
-        ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
-    );
+  void initState() {
+    super.initState();
+    _load();
   }
-}
+
+
+  Future<void> _load() async {
+  final data = await widget.repository.loadHabits(); // Read from disk
+  setState(() {
+    habits = data; // Set state
+    loading = false; // Done loading
+  });
+  }
+}  
