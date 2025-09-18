@@ -4,32 +4,84 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
+// theme and dark mode
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final repo = await HabitRepository.create();
-  runApp(HabitApp(repository: repo));
+  final theme = ThemeController();
+  await theme.load();
+  runApp(HabitApp(repository: repo, theme: theme));
 }
 
+// app
 class HabitApp extends StatelessWidget {
-  const HabitApp({super.key, required this.repository});
+  const HabitApp({super.key, required this.repository, required this.theme});
   final HabitRepository repository;
+  final ThemeController theme;
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Habit Tracker',
-      theme: ThemeData(
-        colorSchemeSeed: const Color(0xFF6C63FF),
-        brightness: Brightness.light,
-        useMaterial3: true,
-      ),
-      home: HomeScreen(repository: repository),
+    return AnimatedBuilder(
+      animation: theme,
+      builder: (context, _) {
+        return MaterialApp(
+          debugShowCheckedModeBanner: false,
+          title: 'Habit Tracker',
+          themeMode: theme.mode,
+          theme: ThemeData(
+            colorSchemeSeed: const Color(0xFF6C63FF),
+            brightness: Brightness.light,
+            useMaterial3: true,
+          ),
+          darkTheme: ThemeData(
+            colorSchemeSeed: const Color(0xFF6C63FF),
+            brightness: Brightness.dark,
+            useMaterial3: true,
+          ),
+          // force HomeScreen to rebuild when theme changes
+          home: HomeScreen(
+            key: ValueKey(theme.mode),
+            repository: repository,
+            theme: theme,
+          ),
+        );
+      },
     );
   }
 }
 
+// theme controller
+class ThemeController extends ChangeNotifier {
+  ThemeMode mode = ThemeMode.light;
+
+  Future<File> _file() async {
+    final dir = await getApplicationDocumentsDirectory();
+    return File('${dir.path}/settings.json');
+  }
+
+  Future<void> load() async {
+    try {
+      final f = await _file();
+      if (!await f.exists()) return;
+      final map = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
+      mode = (map['theme'] == 'dark') ? ThemeMode.dark : ThemeMode.light;
+    } catch (_) {}
+  }
+
+  Future<void> _save() async {
+    final f = await _file();
+    await f.writeAsString(jsonEncode({'theme': mode == ThemeMode.dark ? 'dark' : 'light'}));
+  }
+
+  Future<void> toggle() async {
+    mode = (mode == ThemeMode.dark) ? ThemeMode.light : ThemeMode.dark;
+    await _save();
+    notifyListeners();
+  }
+}
+
 // models
+enum HabitType { check, count }
 
 class Habit {
   Habit({
@@ -37,39 +89,78 @@ class Habit {
     required this.name,
     required this.emoji,
     required this.colorValue,
+    this.type = HabitType.check,
+    this.goalCount = 1,
     DateTime? createdAt,
     Set<String>? completedDays,
+    Map<String, int>? dayCounts,
   })  : createdAt = createdAt ?? DateTime.now(),
-        completedDays = completedDays ?? <String>{};
+        completedDays = completedDays ?? <String>{},
+        dayCounts = dayCounts ?? <String, int>{};
 
   final String id;
   String name;
   String emoji;
   int colorValue;
+  HabitType type;
+  int? goalCount;
   final DateTime createdAt;
-  final Set<String> completedDays;
+  final Set<String> completedDays;     // check type
+  final Map<String, int> dayCounts;    // count type
 
   Color get color => Color(colorValue);
+
+  bool isCompletedOn(String key) {
+    if (type == HabitType.check) return completedDays.contains(key);
+    final goal = (goalCount ?? 1).clamp(1, 1000000);
+    return (dayCounts[key] ?? 0) >= goal;
+  }
+
+  Iterable<String> completedDayKeysForMetrics() sync* {
+    if (type == HabitType.check) {
+      yield* completedDays;
+    } else {
+      final goal = (goalCount ?? 1).clamp(1, 1000000);
+      for (final e in dayCounts.entries) {
+        if (e.value >= goal) yield e.key;
+      }
+    }
+  }
 
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
         'emoji': emoji,
         'colorValue': colorValue,
+        'type': type.name,
+        'goalCount': goalCount,
         'createdAt': createdAt.toIso8601String(),
         'completedDays': completedDays.toList(),
+        'dayCounts': dayCounts,
       };
 
-  static Habit fromJson(Map<String, dynamic> json) => Habit(
-        id: json['id'] as String,
-        name: json['name'] as String,
-        emoji: json['emoji'] as String,
-        colorValue: json['colorValue'] as int,
-        createdAt: DateTime.tryParse(json['createdAt'] as String? ?? ''),
-        completedDays: {
-          for (final d in (json['completedDays'] as List? ?? const [])) d as String
-        },
-      );
+  static Habit fromJson(Map<String, dynamic> json) {
+    final typeStr = (json['type'] as String?) ?? 'check';
+    final parsedType =
+        HabitType.values.firstWhere((t) => t.name == typeStr, orElse: () => HabitType.check);
+    final rawCounts = (json['dayCounts'] as Map?) ?? {};
+    return Habit(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      emoji: json['emoji'] as String,
+      colorValue: json['colorValue'] as int,
+      type: parsedType,
+      goalCount: (json['goalCount'] as int?) ?? 1,
+      createdAt: DateTime.tryParse(json['createdAt'] as String? ?? ''),
+      completedDays: {
+        for (final d in (json['completedDays'] as List? ?? const [])) d as String
+      },
+      dayCounts: {
+        for (final e in rawCounts.entries)
+          e.key.toString(): int.tryParse(e.value.toString()) ?? 0
+      },
+    );
+  }
 }
 
 // json file storage
@@ -100,9 +191,7 @@ class HabitRepository {
   }
 
   Future<void> saveHabits(List<Habit> habits) async {
-    final map = {
-      'habits': habits.map((h) => h.toJson()).toList(),
-    };
+    final map = {'habits': habits.map((h) => h.toJson()).toList()};
     await _file.writeAsString(jsonEncode(map));
   }
 }
@@ -124,7 +213,7 @@ int computeCurrentStreak(Habit habit, {int startOfDayHour = 0}) {
   var cursor = DateTime.now();
   while (true) {
     final key = dayKey(cursor, startOfDayHour: startOfDayHour);
-    if (habit.completedDays.contains(key)) {
+    if (habit.isCompletedOn(key)) {
       streak += 1;
       cursor = cursor.subtract(const Duration(days: 1));
     } else {
@@ -135,20 +224,16 @@ int computeCurrentStreak(Habit habit, {int startOfDayHour = 0}) {
 }
 
 int computeBestStreak(Habit habit) {
-  if (habit.completedDays.isEmpty) return 0;
-  final dates = habit.completedDays
-      .map((k) => DateTime.parse('${k}T12:00:00'))
-      .toList()
-    ..sort();
-  int best = 1;
-  int current = 1;
+  final days = habit.completedDayKeysForMetrics().toList();
+  if (days.isEmpty) return 0;
+  final dates = days.map((k) => DateTime.parse('${k}T12:00:00')).toList()..sort();
+  int best = 1, current = 1;
   for (int i = 1; i < dates.length; i++) {
-    final prev = dates[i - 1];
-    final cur = dates[i];
-    if (cur.difference(prev).inDays == 1) {
-      current += 1;
+    final gap = dates[i].difference(dates[i - 1]).inDays;
+    if (gap == 1) {
+      current++;
       if (current > best) best = current;
-    } else if (cur.difference(prev).inDays > 1) {
+    } else if (gap > 1) {
       current = 1;
     }
   }
@@ -164,8 +249,9 @@ List<String> lastNDaysKeys(int n, {int startOfDayHour = 0}) {
 
 // home screen
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key, required this.repository});
+  const HomeScreen({super.key, required this.repository, required this.theme});
   final HabitRepository repository;
+  final ThemeController theme;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -194,6 +280,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _toggleToday(Habit h) {
     final key = dayKey(DateTime.now(), startOfDayHour: startOfDayHour);
+    if (h.type == HabitType.count) {
+      _incrementToday(h);
+      return;
+    }
     setState(() {
       if (h.completedDays.contains(key)) {
         h.completedDays.remove(key);
@@ -204,10 +294,24 @@ class _HomeScreenState extends State<HomeScreen> {
     _save();
   }
 
+  void _incrementToday(Habit h) {
+    final k = dayKey(DateTime.now(), startOfDayHour: startOfDayHour);
+    setState(() => h.dayCounts[k] = (h.dayCounts[k] ?? 0) + 1);
+    _save();
+  }
+
+  void _decrementToday(Habit h) {
+    final k = dayKey(DateTime.now(), startOfDayHour: startOfDayHour);
+    setState(() => h.dayCounts[k] = ((h.dayCounts[k] ?? 0) - 1).clamp(0, 1000000));
+    _save();
+  }
+
   Future<void> _addHabitDialog() async {
     final nameCtrl = TextEditingController();
+    final goalCtrl = TextEditingController(text: '8');
     String emoji = '✅';
     Color color = Colors.indigo;
+    HabitType type = HabitType.check;
 
     await showModalBottomSheet(
       context: context,
@@ -235,6 +339,34 @@ class _HomeScreenState extends State<HomeScreen> {
                   border: OutlineInputBorder(),
                 ),
               ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  const Text('Type:'),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: const Text('check'),
+                    selected: type == HabitType.check,
+                    onSelected: (_) => setState(() => type = HabitType.check),
+                  ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: const Text('count'),
+                    selected: type == HabitType.count,
+                    onSelected: (_) => setState(() => type = HabitType.count),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (type == HabitType.count)
+                TextField(
+                  controller: goalCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'daily goal (e.g. 8)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
               const SizedBox(height: 12),
               Row(
                 children: [
@@ -274,12 +406,19 @@ class _HomeScreenState extends State<HomeScreen> {
                 onPressed: () {
                   final name = nameCtrl.text.trim();
                   if (name.isEmpty) return;
+                  int? goal;
+                  if (type == HabitType.count) {
+                    goal = int.tryParse(goalCtrl.text.trim());
+                    goal = (goal == null || goal <= 0) ? 8 : goal;
+                  }
                   setState(() {
                     habits.add(Habit(
                       id: UniqueKey().toString(),
                       name: name,
                       emoji: emoji,
                       colorValue: color.value,
+                      type: type,
+                      goalCount: type == HabitType.count ? goal : 1,
                     ));
                   });
                   _save();
@@ -297,8 +436,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _editHabitDialog(Habit h) async {
     final nameCtrl = TextEditingController(text: h.name);
+    final goalCtrl = TextEditingController(text: (h.goalCount ?? 1).toString());
     String emoji = h.emoji;
     Color color = h.color;
+    HabitType type = h.type;
+
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -324,6 +466,34 @@ class _HomeScreenState extends State<HomeScreen> {
                   border: OutlineInputBorder(),
                 ),
               ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  const Text('Type:'),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: const Text('check'),
+                    selected: type == HabitType.check,
+                    onSelected: (_) => setState(() => type = HabitType.check),
+                  ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: const Text('count'),
+                    selected: type == HabitType.count,
+                    onSelected: (_) => setState(() => type = HabitType.count),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (type == HabitType.count)
+                TextField(
+                  controller: goalCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'daily goal',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
               const SizedBox(height: 12),
               Row(
                 children: [
@@ -362,7 +532,15 @@ class _HomeScreenState extends State<HomeScreen> {
               FilledButton(
                 onPressed: () {
                   setState(() {
-                    h.name = nameCtrl.text.trim().isEmpty ? h.name : nameCtrl.text.trim();
+                    final newName = nameCtrl.text.trim();
+                    if (newName.isNotEmpty) h.name = newName;
+                    h.type = type;
+                    if (type == HabitType.count) {
+                      final g = int.tryParse(goalCtrl.text.trim());
+                      h.goalCount = (g == null || g <= 0) ? 8 : g;
+                    } else {
+                      h.goalCount = 1;
+                    }
                     h.emoji = emoji;
                     h.colorValue = color.value;
                   });
@@ -414,9 +592,18 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
+    final isDark = widget.theme.mode == ThemeMode.dark;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Habit Tracker'),
+        actions: [
+          IconButton(
+            tooltip: isDark ? 'light mode' : 'dark mode',
+            onPressed: () => widget.theme.toggle(),
+            icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode),
+          ),
+        ],
       ),
       body: habits.isEmpty
           ? const _EmptyState()
@@ -426,35 +613,56 @@ class _HomeScreenState extends State<HomeScreen> {
               separatorBuilder: (_, __) => const SizedBox(height: 12),
               itemBuilder: (context, i) {
                 final h = habits[i];
-                final todayKey = dayKey(DateTime.now(), startOfDayHour: startOfDayHour);
-                final doneToday = h.completedDays.contains(todayKey);
+                final today = dayKey(DateTime.now(), startOfDayHour: startOfDayHour);
+                final doneToday = h.isCompletedOn(today);
                 final currentStreak = computeCurrentStreak(h, startOfDayHour: startOfDayHour);
                 final bestStreak = computeBestStreak(h);
 
+                final goal = (h.goalCount ?? 1).clamp(1, 1000000);
+                final countToday = h.dayCounts[today] ?? (h.type == HabitType.check && doneToday ? 1 : 0);
+                final progress =
+                    (h.type == HabitType.count) ? (countToday / goal).clamp(0.0, 1.0) : (doneToday ? 1.0 : 0.0);
+
                 return GestureDetector(
                   onLongPress: () => _editHabitDialog(h),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surface,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        )
-                      ],
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(12.0),
+                  child: Card(
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    clipBehavior: Clip.antiAlias,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 250),
+                      curve: Curves.easeOutCubic,
+                      padding: const EdgeInsets.all(12),
+                      color: Theme.of(context).colorScheme.surface, // animate between modes
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
                             children: [
-                              CircleAvatar(
-                                backgroundColor: h.color.withOpacity(0.15),
-                                child: Text(h.emoji, style: const TextStyle(fontSize: 18)),
+                              // progress ring + emoji (animated)
+                              SizedBox(
+                                width: 42,
+                                height: 42,
+                                child: Stack(
+                                  alignment: Alignment.center,
+                                  children: [
+                                    TweenAnimationBuilder<double>(
+                                      tween: Tween(begin: 0, end: progress),
+                                      duration: const Duration(milliseconds: 350),
+                                      curve: Curves.easeOutCubic,
+                                      builder: (context, value, _) {
+                                        return CircularProgressIndicator(
+                                          value: value,
+                                          strokeWidth: 4,
+                                          backgroundColor:
+                                              Theme.of(context).colorScheme.surfaceVariant,
+                                          valueColor: AlwaysStoppedAnimation<Color>(h.color),
+                                        );
+                                      },
+                                    ),
+                                    Text(h.emoji, style: const TextStyle(fontSize: 18)),
+                                  ],
+                                ),
                               ),
                               const SizedBox(width: 12),
                               Expanded(
@@ -463,40 +671,73 @@ class _HomeScreenState extends State<HomeScreen> {
                                   children: [
                                     Text(h.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                                     const SizedBox(height: 2),
-                                    Text(
-                                      'Streak: $currentStreak  •  Best: $bestStreak',
-                                      style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                                    AnimatedSwitcher(
+                                      duration: const Duration(milliseconds: 250),
+                                      transitionBuilder: (child, anim) =>
+                                          FadeTransition(opacity: anim, child: child),
+                                      child: Text(
+                                        h.type == HabitType.count
+                                            ? 'Today: $countToday / $goal  •  Streak: $currentStreak  •  Best: $bestStreak'
+                                            : 'Streak: $currentStreak  •  Best: $bestStreak',
+                                        key: ValueKey('${h.id}-$countToday-$currentStreak-$bestStreak-${h.type.name}'),
+                                        style: TextStyle(
+                                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                        ),
+                                      ),
                                     ),
                                   ],
                                 ),
                               ),
-                              
                               IconButton(
-                                tooltip: 'Edit',
+                                tooltip: 'edit',
                                 onPressed: () => _editHabitDialog(h),
                                 icon: const Icon(Icons.edit),
                               ),
-                              
                               IconButton(
-                                tooltip: 'Delete',
+                                tooltip: 'delete',
                                 onPressed: () => _confirmDelete(h),
                                 icon: const Icon(Icons.delete_outline),
                                 color: Colors.red,
                               ),
-                              
-                              IconButton(
-                                tooltip: doneToday ? 'Mark as not done' : 'Mark as done',
-                                onPressed: () => _toggleToday(h),
-                                icon: Icon(
-                                  doneToday ? Icons.check_circle : Icons.circle_outlined,
-                                  color: doneToday ? h.color : Theme.of(context).colorScheme.outline,
-                                  size: 28,
+                              if (h.type == HabitType.count) ...[
+                                IconButton(
+                                  tooltip: 'minus',
+                                  onPressed: () => _decrementToday(h),
+                                  icon: const Icon(Icons.remove_circle_outline),
                                 ),
-                              ),
+                                IconButton(
+                                  tooltip: 'plus',
+                                  onPressed: () => _incrementToday(h),
+                                  icon: const Icon(Icons.add_circle_outline),
+                                ),
+                              ] else ...[
+                                AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 200),
+                                  transitionBuilder: (child, anim) =>
+                                      ScaleTransition(scale: anim, child: child),
+                                  child: IconButton(
+                                    key: ValueKey(doneToday),
+                                    tooltip: doneToday ? 'mark as not done' : 'mark as done',
+                                    onPressed: () => _toggleToday(h),
+                                    icon: Icon(
+                                      doneToday ? Icons.check_circle : Icons.circle_outlined,
+                                      color: doneToday
+                                          ? h.color
+                                          : Theme.of(context).colorScheme.outline,
+                                      size: 28,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                           const SizedBox(height: 12),
-                          _WeeklyHeatmap(habit: h, weeks: 8, accent: h.color, startOfDayHour: startOfDayHour),
+                          _WeeklyHeatmap(
+                            habit: h,
+                            weeks: 8,
+                            accent: h.color,
+                            startOfDayHour: startOfDayHour,
+                          ),
                         ],
                       ),
                     ),
@@ -513,6 +754,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+// empty state
 class _EmptyState extends StatelessWidget {
   const _EmptyState();
   @override
@@ -554,7 +796,8 @@ class _WeeklyHeatmap extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final days = lastNDaysKeys(weeks * 7, startOfDayHour: startOfDayHour);
-    final tiles = days.map((k) => habit.completedDays.contains(k)).toList();
+    final completedSet = habit.completedDayKeysForMetrics().toSet();
+    final tiles = days.map((k) => completedSet.contains(k)).toList();
 
     return SizedBox(
       height: 72,
@@ -586,6 +829,7 @@ class _WeeklyHeatmap extends StatelessWidget {
   }
 }
 
+// color dot
 class _ColorDot extends StatelessWidget {
   const _ColorDot({required this.color, required this.selected, required this.onTap});
   final Color color;
@@ -593,6 +837,9 @@ class _ColorDot extends StatelessWidget {
   final VoidCallback onTap;
   @override
   Widget build(BuildContext context) {
+    final borderColor = selected
+        ? Theme.of(context).colorScheme.onPrimaryContainer
+        : Theme.of(context).dividerColor; // adapt to theme
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -601,10 +848,7 @@ class _ColorDot extends StatelessWidget {
         decoration: BoxDecoration(
           color: color,
           shape: BoxShape.circle,
-          border: Border.all(
-            color: selected ? Theme.of(context).colorScheme.onPrimaryContainer : Colors.white,
-            width: selected ? 2 : 1,
-          ),
+          border: Border.all(color: borderColor, width: selected ? 2 : 1),
           boxShadow: [
             BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 6, offset: const Offset(0, 2)),
           ],
@@ -614,6 +858,7 @@ class _ColorDot extends StatelessWidget {
   }
 }
 
+// palette
 final _palette = <Color>[
   const Color(0xFF6C63FF),
   const Color(0xFF00B894),
