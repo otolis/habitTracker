@@ -4,8 +4,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
-
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final repo = await HabitRepository.create();
@@ -46,10 +44,10 @@ class Habit {
 
   final String id;
   String name;
-  String emoji; 
-  int colorValue; 
+  String emoji;
+  int colorValue;
   final DateTime createdAt;
-  final Set<String> completedDays; 
+  final Set<String> completedDays;
 
   Color get color => Color(colorValue);
 
@@ -109,9 +107,8 @@ class HabitRepository {
   }
 }
 
-// dates and streaks 
+// dates and streaks
 String dayKey(DateTime dt, {int startOfDayHour = 0}) {
-  
   final local = dt.toLocal();
   final adjusted = local.hour < startOfDayHour
       ? local.subtract(const Duration(days: 1))
@@ -138,7 +135,6 @@ int computeCurrentStreak(Habit habit, {int startOfDayHour = 0}) {
 }
 
 int computeBestStreak(Habit habit) {
-  
   if (habit.completedDays.isEmpty) return 0;
   final dates = habit.completedDays
       .map((k) => DateTime.parse('${k}T12:00:00'))
@@ -166,7 +162,7 @@ List<String> lastNDaysKeys(int n, {int startOfDayHour = 0}) {
       .toList();
 }
 
-//home screen
+// home screen
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, required this.repository});
   final HabitRepository repository;
@@ -176,7 +172,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final int startOfDayHour = 4; 
+  final int startOfDayHour = 4;
   List<Habit> habits = [];
   bool loading = true;
 
@@ -392,6 +388,24 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Future<void> _confirmDelete(Habit h) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete habit?'),
+        content: Text('This will remove "${h.name}".'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (ok == true) {
+      setState(() => habits.removeWhere((x) => x.id == h.id));
+      await _save();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (loading) {
@@ -456,6 +470,20 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ],
                                 ),
                               ),
+                              
+                              IconButton(
+                                tooltip: 'Edit',
+                                onPressed: () => _editHabitDialog(h),
+                                icon: const Icon(Icons.edit),
+                              ),
+                              
+                              IconButton(
+                                tooltip: 'Delete',
+                                onPressed: () => _confirmDelete(h),
+                                icon: const Icon(Icons.delete_outline),
+                                color: Colors.red,
+                              ),
+                              
                               IconButton(
                                 tooltip: doneToday ? 'Mark as not done' : 'Mark as done',
                                 onPressed: () => _toggleToday(h),
@@ -509,7 +537,7 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-// weekly hitmap
+// weekly heatmap
 class _WeeklyHeatmap extends StatelessWidget {
   const _WeeklyHeatmap({
     required this.habit,
@@ -519,7 +547,7 @@ class _WeeklyHeatmap extends StatelessWidget {
   });
 
   final Habit habit;
-  final int weeks; 
+  final int weeks;
   final Color accent;
   final int startOfDayHour;
 
