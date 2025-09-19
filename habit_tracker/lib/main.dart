@@ -32,13 +32,20 @@ class HabitApp extends StatelessWidget {
             colorSchemeSeed: const Color(0xFF6C63FF),
             brightness: Brightness.light,
             useMaterial3: true,
+            cardTheme: const CardThemeData(surfaceTintColor: Colors.transparent),
           ),
           darkTheme: ThemeData(
             colorSchemeSeed: const Color(0xFF6C63FF),
             brightness: Brightness.dark,
             useMaterial3: true,
+            cardTheme: const CardThemeData(surfaceTintColor: Colors.transparent),
           ),
-          home: HomeScreen(repository: repository, theme: theme),
+          
+          home: HomeScreen(
+            key: ValueKey(theme.mode),
+            repository: repository,
+            theme: theme,
+          ),
         );
       },
     );
@@ -389,7 +396,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: _palette
                         .map((c) => _ColorDot(
                               color: c,
-                              selected: color.value == c.value,
+                              selected: color.toARGB32() == c.toARGB32(),
                               onTap: () => setState(() => color = c),
                             ))
                         .toList(),
@@ -411,7 +418,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       id: UniqueKey().toString(),
                       name: name,
                       emoji: emoji,
-                      colorValue: color.value,
+                      colorValue: color.toARGB32(),
                       type: type,
                       goalCount: type == HabitType.count ? goal : 1,
                     ));
@@ -516,7 +523,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: _palette
                         .map((c) => _ColorDot(
                               color: c,
-                              selected: color.value == c.value,
+                              selected: color.toARGB32() == c.toARGB32(),
                               onTap: () => setState(() => color = c),
                             ))
                         .toList(),
@@ -537,6 +544,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       h.goalCount = 1;
                     }
                     h.emoji = emoji;
+                    // ignore: deprecated_member_use
                     h.colorValue = color.value;
                   });
                   _save();
@@ -620,20 +628,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
                 return GestureDetector(
                   onLongPress: () => _editHabitDialog(h),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surface,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        )
-                      ],
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(12.0),
+                  child: Card(
+                     
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    clipBehavior: Clip.antiAlias,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 250),
+                      curve: Curves.easeOutCubic,
+                      padding: const EdgeInsets.all(12),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -653,8 +656,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                         return CircularProgressIndicator(
                                           value: value,
                                           strokeWidth: 4,
-                                          backgroundColor:
-                                              Theme.of(context).colorScheme.surfaceVariant,
+                                          backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
                                           valueColor: AlwaysStoppedAnimation<Color>(h.color),
                                         );
                                       },
@@ -815,7 +817,7 @@ class _WeeklyHeatmap extends StatelessWidget {
                   width: 10,
                   height: 10,
                   decoration: BoxDecoration(
-                    color: done ? accent.withOpacity(0.9) : Theme.of(context).colorScheme.surfaceVariant,
+                    color: done ? accent.withValues(alpha: 0.9) : Theme.of(context).colorScheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(3),
                   ),
                 );
@@ -836,6 +838,10 @@ class _ColorDot extends StatelessWidget {
   final VoidCallback onTap;
   @override
   Widget build(BuildContext context) {
+    final borderColor = selected
+        ? Theme.of(context).colorScheme.onPrimaryContainer
+        : Theme.of(context).dividerColor;
+         
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -844,12 +850,9 @@ class _ColorDot extends StatelessWidget {
         decoration: BoxDecoration(
           color: color,
           shape: BoxShape.circle,
-          border: Border.all(
-            color: selected ? Theme.of(context).colorScheme.onPrimaryContainer : Colors.white,
-            width: selected ? 2 : 1,
-          ),
+          border: Border.all(color: borderColor, width: selected ? 2 : 1),
           boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 6, offset: const Offset(0, 2)),
+            BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 6, offset: const Offset(0, 2)),
           ],
         ),
       ),
