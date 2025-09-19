@@ -1,30 +1,58 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
+import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+
 
 import 'package:habit_tracker/main.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  TestWidgetsFlutterBinding.ensureInitialized();
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+  // Mock path_provider so HabitRepository can read/write in tests
+  const MethodChannel pathProviderChannel =
+      MethodChannel('plugins.flutter.io/path_provider');
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+  setUpAll(() {
+    pathProviderChannel.setMockMethodCallHandler((MethodCall call) async {
+      if (call.method == 'getApplicationDocumentsDirectory') {
+        final tmp = await Directory.systemTemp.createTemp('habit_test_');
+        return tmp.path;
+      }
+      // You can add more methods if you use them
+      return null;
+    });
+  });
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+  tearDownAll(() {
+    pathProviderChannel.setMockMethodCallHandler(null);
+  });
+
+  testWidgets('smoke: app builds and shows title', (tester) async {
+    final repo = await HabitRepository.create();
+    final theme = ThemeController();
+    await theme.load();
+
+    await tester.pumpWidget(
+      HabitApp(repository: repo, theme: theme),
+    );
+
+    await tester.pumpAndSettle();
+    expect(find.text('Habit Tracker'), findsOneWidget);
+  });
+
+  testWidgets('home screen builds directly', (tester) async {
+    final repo = await HabitRepository.create();
+    final theme = ThemeController();
+    await theme.load();
+
+    await tester.pumpWidget(
+      MaterialApp(home: HomeScreen(repository: repo, theme: theme)),
+    );
+
+    await tester.pumpAndSettle();
+    // Empty state text when no habits
+    expect(find.textContaining('Create your first habit'), findsOneWidget);
   });
 }
