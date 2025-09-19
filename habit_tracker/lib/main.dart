@@ -309,265 +309,304 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _addHabitDialog() async {
-    final nameCtrl = TextEditingController();
-    final goalCtrl = TextEditingController(text: '8');
-    String emoji = '✅';
-    Color color = Colors.indigo;
-    HabitType type = HabitType.check;
+  // local controllers/state for the sheet
+  final nameCtrl = TextEditingController();
+  final goalCtrl = TextEditingController(text: '8');
+  String emoji = '✅';
+  Color color = Colors.indigo;
+  HabitType type = HabitType.check;
 
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (ctx) {
-        return Padding(
-          padding: EdgeInsets.only(
-            left: 16,
-            right: 16,
-            bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
-            top: 16,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text('New Habit', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
-              const SizedBox(height: 12),
-              TextField(
-                controller: nameCtrl,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: 'Habit name',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  const Text('Type:'),
-                  const SizedBox(width: 8),
-                  ChoiceChip(
-                    label: const Text('check'),
-                    selected: type == HabitType.check,
-                    onSelected: (_) => setState(() => type = HabitType.check),
-                  ),
-                  const SizedBox(width: 8),
-                  ChoiceChip(
-                    label: const Text('count'),
-                    selected: type == HabitType.count,
-                    onSelected: (_) => setState(() => type = HabitType.count),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              if (type == HabitType.count)
+  await showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (ctx) {
+      return StatefulBuilder(
+        builder: (ctx, setModalState) {
+          return Padding(
+            padding: EdgeInsets.only(
+              left: 16,
+              right: 16,
+              bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+              top: 16,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text('New Habit', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 12),
                 TextField(
-                  controller: goalCtrl,
-                  keyboardType: TextInputType.number,
+                  controller: nameCtrl,
+                  autofocus: true,
                   decoration: const InputDecoration(
-                    labelText: 'daily goal (e.g. 8)',
+                    labelText: 'Habit name',
                     border: OutlineInputBorder(),
                   ),
                 ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  const Text('Emoji:'),
-                  const SizedBox(width: 8),
-                  Wrap(
-                    spacing: 8,
-                    children: ['✅', '📚', '🧘', '🏃', '💧', '🍎', '🛏️', '🧠']
-                        .map((e) => ChoiceChip(
-                              label: Text(e, style: const TextStyle(fontSize: 18)),
-                              selected: emoji == e,
-                              onSelected: (_) => setState(() => emoji = e),
-                            ))
-                        .toList(),
+                const SizedBox(height: 12),
+
+                // type chips — use setModalState so UI updates immediately
+                Row(
+                  children: [
+                    const Text('Type:'),
+                    const SizedBox(width: 8),
+                    ChoiceChip(
+                      label: const Text('check'),
+                      selected: type == HabitType.check,
+                      onSelected: (_) => setModalState(() => type = HabitType.check),
+                    ),
+                    const SizedBox(width: 8),
+                    ChoiceChip(
+                      label: const Text('count'),
+                      selected: type == HabitType.count,
+                      onSelected: (_) => setModalState(() => type = HabitType.count),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+                if (type == HabitType.count)
+                  TextField(
+                    controller: goalCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'daily goal (e.g. 8)',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  const Text('Color:'),
-                  const SizedBox(width: 8),
-                  Wrap(
-                    spacing: 8,
-                    children: _palette
-                        .map((c) => _ColorDot(
-                              color: c,
-                              selected: color.toARGB32() == c.toARGB32(),
-                              onTap: () => setState(() => color = c),
-                            ))
-                        .toList(),
-                  )
-                ],
-              ),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: () {
-                  final name = nameCtrl.text.trim();
-                  if (name.isEmpty) return;
-                  int? goal;
-                  if (type == HabitType.count) {
-                    goal = int.tryParse(goalCtrl.text.trim());
-                    goal = (goal == null || goal <= 0) ? 8 : goal;
-                  }
-                  setState(() {
-                    habits.add(Habit(
-                      id: UniqueKey().toString(),
-                      name: name,
-                      emoji: emoji,
-                      colorValue: color.toARGB32(),
-                      type: type,
-                      goalCount: type == HabitType.count ? goal : 1,
-                    ));
-                  });
-                  _save();
-                  Navigator.pop(ctx);
-                },
-                child: const Text('Create'),
-              ),
-              const SizedBox(height: 8),
-            ],
-          ),
-        );
-      },
-    );
-  }
+
+                const SizedBox(height: 12),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Emoji:'),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: ['✅','📚','🧘','🏃','💧','🍎','🛏️','🧠']
+                            .map((e) => ChoiceChip(
+                                  label: Text(e, style: const TextStyle(fontSize: 18)),
+                                  selected: emoji == e,
+                                  onSelected: (_) => setModalState(() => emoji = e),
+                                ))
+                            .toList(),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Color:'),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: _palette
+                            .map((c) => _ColorDot(
+                                  color: c,
+                                  selected: color.toARGB32() == c.toARGB32(),
+                                  onTap: () => setModalState(() => color = c),
+                                ))
+                            .toList(),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: () {
+                    final name = nameCtrl.text.trim();
+                    if (name.isEmpty) return;
+                    int? goal;
+                    if (type == HabitType.count) {
+                      goal = int.tryParse(goalCtrl.text.trim());
+                      goal = (goal == null || goal <= 0) ? 8 : goal;
+                    }
+                    setState(() {
+                      habits.add(Habit(
+                        id: UniqueKey().toString(),
+                        name: name,
+                        emoji: emoji,
+                        colorValue: color.toARGB32(),
+                        type: type,
+                        goalCount: type == HabitType.count ? goal : 1,
+                      ));
+                    });
+                    _save();
+                    Navigator.pop(ctx);
+                  },
+                  child: const Text('Create'),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+
 
   void _editHabitDialog(Habit h) async {
-    final nameCtrl = TextEditingController(text: h.name);
-    final goalCtrl = TextEditingController(text: (h.goalCount ?? 1).toString());
-    String emoji = h.emoji;
-    Color color = h.color;
-    HabitType type = h.type;
+  // local state from the habit being edited
+  final nameCtrl = TextEditingController(text: h.name);
+  final goalCtrl = TextEditingController(text: (h.goalCount ?? 1).toString());
+  String emoji = h.emoji;
+  Color color = h.color;
+  HabitType type = h.type;
 
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (ctx) {
-        return Padding(
-          padding: EdgeInsets.only(
-            left: 16,
-            right: 16,
-            bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
-            top: 16,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text('Edit Habit', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
-              const SizedBox(height: 12),
-              TextField(
-                controller: nameCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Habit name',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  const Text('Type:'),
-                  const SizedBox(width: 8),
-                  ChoiceChip(
-                    label: const Text('check'),
-                    selected: type == HabitType.check,
-                    onSelected: (_) => setState(() => type = HabitType.check),
-                  ),
-                  const SizedBox(width: 8),
-                  ChoiceChip(
-                    label: const Text('count'),
-                    selected: type == HabitType.count,
-                    onSelected: (_) => setState(() => type = HabitType.count),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              if (type == HabitType.count)
+  await showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (ctx) {
+      return StatefulBuilder(
+        builder: (ctx, setModalState) {
+          return Padding(
+            padding: EdgeInsets.only(
+              left: 16,
+              right: 16,
+              bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+              top: 16,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text('Edit Habit', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 12),
                 TextField(
-                  controller: goalCtrl,
-                  keyboardType: TextInputType.number,
+                  controller: nameCtrl,
                   decoration: const InputDecoration(
-                    labelText: 'daily goal',
+                    labelText: 'Habit name',
                     border: OutlineInputBorder(),
                   ),
                 ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  const Text('Emoji:'),
-                  const SizedBox(width: 8),
-                  Wrap(
-                    spacing: 8,
-                    children: ['✅', '📚', '🧘', '🏃', '💧', '🍎', '🛏️', '🧠']
-                        .map((e) => ChoiceChip(
-                              label: Text(e, style: const TextStyle(fontSize: 18)),
-                              selected: emoji == e,
-                              onSelected: (_) => setState(() => emoji = e),
-                            ))
-                        .toList(),
+                const SizedBox(height: 12),
+
+                // type chips — use setModalState here too
+                Row(
+                  children: [
+                    const Text('Type:'),
+                    const SizedBox(width: 8),
+                    ChoiceChip(
+                      label: const Text('check'),
+                      selected: type == HabitType.check,
+                      onSelected: (_) => setModalState(() => type = HabitType.check),
+                    ),
+                    const SizedBox(width: 8),
+                    ChoiceChip(
+                      label: const Text('count'),
+                      selected: type == HabitType.count,
+                      onSelected: (_) => setModalState(() => type = HabitType.count),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+                if (type == HabitType.count)
+                  TextField(
+                    controller: goalCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'daily goal',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  const Text('Color:'),
-                  const SizedBox(width: 8),
-                  Wrap(
-                    spacing: 8,
-                    children: _palette
-                        .map((c) => _ColorDot(
-                              color: c,
-                              selected: color.toARGB32() == c.toARGB32(),
-                              onTap: () => setState(() => color = c),
-                            ))
-                        .toList(),
-                  )
-                ],
-              ),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: () {
-                  setState(() {
-                    final newName = nameCtrl.text.trim();
-                    if (newName.isNotEmpty) h.name = newName;
-                    h.type = type;
-                    if (type == HabitType.count) {
-                      final g = int.tryParse(goalCtrl.text.trim());
-                      h.goalCount = (g == null || g <= 0) ? 8 : g;
-                    } else {
-                      h.goalCount = 1;
-                    }
-                    h.emoji = emoji;
-                    // ignore: deprecated_member_use
-                    h.colorValue = color.value;
-                  });
-                  _save();
-                  Navigator.pop(ctx);
-                },
-                child: const Text('Save'),
-              ),
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: () {
-                  setState(() => habits.removeWhere((x) => x.id == h.id));
-                  _save();
-                  Navigator.pop(ctx);
-                },
-                style: TextButton.styleFrom(foregroundColor: Colors.red),
-                child: const Text('Delete habit'),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
+
+                const SizedBox(height: 12),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Emoji:'),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: ['✅','📚','🧘','🏃','💧','🍎','🛏️','🧠']
+                            .map((e) => ChoiceChip(
+                                  label: Text(e, style: const TextStyle(fontSize: 18)),
+                                  selected: emoji == e,
+                                  onSelected: (_) => setModalState(() => emoji = e),
+                                ))
+                            .toList(),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Color:'),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: _palette
+                            .map((c) => _ColorDot(
+                                  color: c,
+                                  selected: color.toARGB32() == c.toARGB32(),
+                                  onTap: () => setModalState(() => color = c),
+                                ))
+                            .toList(),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: () {
+                    setState(() {
+                      final newName = nameCtrl.text.trim();
+                      if (newName.isNotEmpty) h.name = newName;
+                      h.type = type;
+                      if (type == HabitType.count) {
+                        final g = int.tryParse(goalCtrl.text.trim());
+                        h.goalCount = (g == null || g <= 0) ? 8 : g;
+                      } else {
+                        h.goalCount = 1;
+                      }
+                      h.emoji = emoji;
+                      h.colorValue = color.toARGB32();
+                    });
+                    _save();
+                    Navigator.pop(ctx);
+                  },
+                  child: const Text('Save'),
+                ),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: () {
+                    setState(() => habits.removeWhere((x) => x.id == h.id));
+                    _save();
+                    Navigator.pop(ctx);
+                  },
+                  style: TextButton.styleFrom(foregroundColor: Colors.red),
+                  child: const Text('Delete habit'),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+
 
   Future<void> _confirmDelete(Habit h) async {
     final ok = await showDialog<bool>(
